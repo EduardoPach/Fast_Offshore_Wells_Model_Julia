@@ -5,8 +5,7 @@ Paper: Fast Offshore Wells Model (FOWM): A practical dynamic model for multiphas
 Authors: Fabio C.Diehl Thiago K.Anzai Cristina S.Almeida Oscar F.Von Meien Saul S.Neto Vinicius R.Rosa Mario C.M.M.Campos Filipe Reolon Giovani Gerevini Cassiano Ranza MarceloFarenzena Jorge O.Trierweiler
 =#
 
-function fowm(du,u,p,t)
-    
+function fowm(du,u,p,t)    
     #= 
     States: 
         01 - m_ga:      Gas Annular 
@@ -39,6 +38,7 @@ function fowm(du,u,p,t)
         15 - D_ss:      Subsea Pipeline Diameter
         16 - D_t:       Tubing Diameter
         17 - D_a:       Annular Diameter
+        18 - θ:         Annular Diameter
     - Estimated Parameters in Diehl et al.
         01 - m_still:   Minimum Liquid Mass at Subsea Pipeline
         02 - C_g:       Virtual Valve Flow Constant
@@ -51,10 +51,11 @@ function fowm(du,u,p,t)
         09 - ωᵤ:        Bubble Location (Assistant Parameter)
     =#
     z,ρ_l,P_r,P_s,α_gw,ρ_mres,M,T,L_r,L_fl,L_t,L_a,H_t,
-    H_pdg,H_vgl,D_ss,D_t,D_a,m_still,C_g,C_out,V_eb,E,K_w,K_a,K_r,ωᵤ = p
+    H_pdg,H_vgl,D_ss,D_t,D_a,θ,m_still,C_g,C_out,V_eb,E,K_w,K_a,K_r,ωᵤ = p
 
     # Universal Gas Constant
     R      = 8314 # J/kmolK
+    g      = 9.81     
     #=
     First Rank Variables:
         01 - V_t:       Tubing Volume
@@ -111,14 +112,14 @@ function fowm(du,u,p,t)
         07 - W_gout:    Gas through Choke
         08 - W_lout:    Liquid through Choke
     =#
-    W_iv   = K_a*√(ρ_ai*max(0,(P_ai-P_tb))) 
+    W_iv   = K_a*√(ρ_ai*max(0,P_ai-P_tb)) 
     W_r    = K_r*(1 - 0.2*P_bh/P_r-(0.8*P_bh/P_r)^2)
-    W_whg  = K_w*α_gt*√(ρ_l*max(0,(P_tt-P_rb)))
-    W_whl  = K_w*(1-α_gt)*√(ρ_l*max(0,(P_tt-P_rb)))
-    W_gc   = # Ver no artigo o que foi assumido
-    W_g    = C_g*(P_eb-P_rb)
-    W_gout = α_gr*C_out*z*√(ρ_l*max(0,(P_rt-P_s)))
-    W_lout = α_lr*C_out*z*√(ρ_l*max(0,(P_rt-P_s)))
+    W_whg  = K_w*α_gt*√(ρ_l*max(0,P_tt-P_rb))
+    W_whl  = K_w*(1-α_gt)*√(ρ_l*max(0,P_tt-P_rb))
+    W_gc   = W_iv
+    W_g    = max(0,C_g*(P_eb-P_rb))
+    W_gout = α_gr*C_out*z*√(ρ_l*max(0,P_rt-P_s))
+    W_lout = α_lr*C_out*z*√(ρ_l*max(0,P_rt-P_s))
     # States' Derivative 
     du[1]  = δm_ga = W_gc - W_iv
     du[2]  = δm_gt = W_r*α_gw+W_iv-W_whg
@@ -128,24 +129,40 @@ function fowm(du,u,p,t)
     du[6]  = δm_lr = W_whl - W_lout
 end
 
+function simulate_fowm(u₀,tf,z,Δt=[])
+    #=
+    Args:
+        - u₀: Initial Condition
+        - tf: Final Simulation Time (hours)
+        - z:  Choke Valve Opening Fraction
+        - Δt: Time Step to Save Results (hours)
+    =#
+    tspan = (0,tf*3600)
+    p = [z,ρ_l,P_r,P_s,α_gw,ρ_mres,M,T,L_r,L_fl,L_t,L_a,H_t,H_pdg,H_vgl,D_ss,D_t,D_a,θ,m_still,C_g,C_out,V_eb,E,K_w,K_a,K_r,ωᵤ]
+    prob = ODEProblem(fowm,u₀,tspan,p)
+    sol = solve(prob,Tsit5(),saveat = Δt)
+    return sol
+end
+
 # Parameters for Simulation (Diehl et al. Table 2 Well A and Table 3 Real Well A)
-ρ_l         =   900   
+ρ_l         =   900.0   
 P_r         =   225e5
 P_s         =   10e5
 α_gw        =   0.0188
-ρ_mres      =   892
-M           =   18 
-T           =   298
-L_r         =   1569
-L_fl        =   2928
-L_t         =   1639
-L_a         =   1118
-H_t         =   1279
-H_pdg       =   1117
-H_vgl       =   916
+ρ_mres      =   892.0
+M           =   18.0
+T           =   298.0
+L_r         =   1569.0
+L_fl        =   2928.0
+L_t         =   1639.0
+L_a         =   1118.0
+H_t         =   1279.0
+H_pdg       =   1117.0
+H_vgl       =   916.0
 D_ss        =   0.15
 D_t         =   0.15
 D_a         =   0.14
+θ           =   π*60/180
 m_still     =   6.222e1
 C_g         =   1.137e-3
 C_out       =   2.039e-3
@@ -156,15 +173,12 @@ K_a         =   2.293e-5
 K_r         =   1.269e2
 ωᵤ          =   2.780e0
 
-function simulate_fowm(u₀,tf,z,Δt=false)
-    #=
-    Args:
-        - u₀: Initial Condition
-        - tf: Final Simulation Time (hours)
-        - z:  Choke Valve Opening Fraction
-        - Δt: Time Step to Save Results (hours)
-    =#
-    tspan = (0,tf*3600)
-    p = [z,ρ_l,P_r,P_s,α_gw,ρ_mres,M,T,L_r,L_fl,L_t,L_a,H_t,H_pdg,H_vgl,D_ss,D_t,D_a,m_still,C_g,C_out,V_eb,E,K_w,K_a,K_r,ωᵤ]
-    prob = ODEProblem(fowm,u₀,tspan,p)
-end
+# Initial Conditions
+x₀ = repeat([1000.0],6)
+# Simulation Time and Time-step in Hours
+tf = 30.0
+Δt = 1/60*15*3600
+# Choke Opening Fraction
+z = 0.2
+# Simulating
+sol = simulate_fowm(x₀,tf,z,Δt)
