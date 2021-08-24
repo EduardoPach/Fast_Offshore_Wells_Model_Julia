@@ -1,10 +1,10 @@
 using Plots,DifferentialEquations
+Plots.PlotlyJSBackend()
 #=
 Objective: This script intends to reproduce the Fast Offshore Wells Model.
 Paper: Fast Offshore Wells Model (FOWM): A practical dynamic model for multiphase oil production systems in deepwater and ultra-deepwater scenarios
 Authors: Fabio C.Diehl Thiago K.Anzai Cristina S.Almeida Oscar F.Von Meien Saul S.Neto Vinicius R.Rosa Mario C.M.M.Campos Filipe Reolon Giovani Gerevini Cassiano Ranza MarceloFarenzena Jorge O.Trierweiler
 =#
-
 function fowm(du,u,p,t)    
     #= 
     States: 
@@ -174,11 +174,47 @@ K_r         =   1.269e2
 ωᵤ          =   2.780e0
 
 # Initial Conditions
-x₀ = repeat([1000.0],6)
+x₀ = repeat([10000.0],6)
 # Simulation Time and Time-step in Hours
 tf = 30.0
 Δt = 1/60*15*3600
 # Choke Opening Fraction
-z = 0.2
+z = 0.5
 # Simulating
 sol = simulate_fowm(x₀,tf,z,Δt)
+
+m_ga = sol[1,:] 
+m_gt = sol[2,:]
+m_lt = sol[3,:]
+m_gb = sol[4,:]
+m_gr = sol[5,:]
+m_lr = sol[6,:]
+
+V_t    = π*D_t^2/4*L_t
+V_ss   = π*D_ss^2/4*L_r + π*D_ss^2/4*L_fl
+V_a    = π*D_a^2/4*L_a
+A_ss   = π*D_ss^2/4
+V_gt   = V_t .- m_lt./ρ_l
+ρ_mt   = (m_gt+m_lt)/V_t
+ρ_gt   = m_gt./V_gt
+
+R      = 8314 # J/kmolK
+g      = 9.81    
+
+P_ai   =  m_ga.*(R.*T./V_a./M+g.*L_a./V_a)
+P_tt   =  ρ_gt.*R.*T./M
+P_tb   =  P_tt .+ ρ_mt.*g.*H_vgl
+P_pdg  =  P_tb .+ρ_mres.*g.*(H_pdg.-H_vgl)
+P_bh   =  P_pdg .+ ρ_mres.*g.*(H_t-H_pdg)
+P_rt   =  m_gr.*R.*T./M./(ωᵤ.*V_ss.-(m_lr.+m_still)./ρ_l)
+P_rb   =  P_rt .+ (m_lr.+m_still).*g.*sin.(θ)./A_ss
+P_eb   =  m_gb.*R.*T./M./V_eb
+ρ_ai   =  M.*P_ai./R./T
+α_gt   =  m_gt./(m_gt.+m_lt)
+α_gr   =  m_gr./(m_gr.+m_lr)
+α_lr   =  1 .-α_gr
+
+t = sol.t
+
+plotly()
+plot(t,P_pdg)
